@@ -21,9 +21,6 @@ export default async function AdminPage() {
     .select('report_id, item_id, resultado')
     .in('report_id', (reports ?? []).map(r => r.id))
 
-  // Get user emails via auth admin — fallback to user_id display
-  const userIds = [...new Set((reports ?? []).map(r => r.user_id))]
-
   const reportStats = (reports ?? []).map(report => {
     const responses: Record<string, Resultado> = {}
     ;(allResponses ?? [])
