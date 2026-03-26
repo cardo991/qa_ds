@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { QASection, Resultado } from '@/lib/questionnaire'
@@ -34,31 +34,34 @@ const RESULTADO_LABELS: Record<Resultado, { label: string; color: string; select
 export default function QuestionnaireForm({ reportId, sections, initialResponses, initialObservaciones }: Props) {
   const router = useRouter()
   const supabase = createClient()
-  const [isPending, startTransition] = useTransition()
 
   const [responses, setResponses] = useState<Record<string, Resultado>>(initialResponses)
   const [observaciones, setObservaciones] = useState<Record<string, string>>(initialObservaciones)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const { porcentaje, aprobados, total, na } = calcularPorcentaje(responses)
 
   function setRespuesta(itemId: string, val: Resultado) {
     setResponses(prev => ({ ...prev, [itemId]: val }))
-    setSaved(false)
+    setSaveStatus('idle')
   }
 
   function setObs(itemId: string, val: string) {
     setObservaciones(prev => ({ ...prev, [itemId]: val }))
-    setSaved(false)
+    setSaveStatus('idle')
   }
 
   async function handleSave() {
     setSaving(true)
+    setSaveStatus('idle')
+    setErrorMsg('')
+
     const allItems = sections.flatMap(s => s.items)
 
     const upserts = allItems
-      .filter(item => responses[item.id])
+      .filter(item => responses[item.id] !== undefined)
       .map(item => ({
         report_id: reportId,
         item_id: item.id,
@@ -67,20 +70,36 @@ export default function QuestionnaireForm({ reportId, sections, initialResponses
         updated_at: new Date().toISOString(),
       }))
 
-    if (upserts.length > 0) {
-      await supabase.from('report_responses').upsert(upserts, { onConflict: 'report_id,item_id' })
+    if (upserts.length === 0) {
+      setSaving(false)
+      setSaveStatus('error')
+      setErrorMsg('No hay respuestas para guardar. Seleccioná al menos un ítem.')
+      return
     }
 
-    // update report updated_at
-    await supabase.from('reports').update({ updated_at: new Date().toISOString() }).eq('id', reportId)
+    const { error: upsertError } = await supabase
+      .from('report_responses')
+      .upsert(upserts, { onConflict: 'report_id,item_id' })
 
-    setSaved(true)
+    if (upsertError) {
+      setSaving(false)
+      setSaveStatus('error')
+      setErrorMsg(`Error: ${upsertError.message}`)
+      return
+    }
+
+    await supabase
+      .from('reports')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', reportId)
+
     setSaving(false)
-    startTransition(() => router.refresh())
+    setSaveStatus('saved')
+    router.refresh()
   }
 
-  const completedCount = Object.keys(responses).length
   const totalItems = sections.flatMap(s => s.items).length
+  const completedCount = Object.keys(responses).length
 
   return (
     <div>
@@ -167,15 +186,17 @@ export default function QuestionnaireForm({ reportId, sections, initialResponses
         ))}
       </div>
 
-      {/* Save button sticky footer */}
-      <div className="sticky bottom-0 bg-white border-t border-gray-200 mt-6 -mx-4 px-4 py-3 flex items-center justify-between">
-        <span className="text-sm text-gray-500">
-          {saved ? '✓ Guardado' : 'Los cambios no están guardados'}
-        </span>
+      {/* Save footer */}
+      <div className="sticky bottom-0 bg-white border-t border-gray-200 mt-6 -mx-4 px-4 py-3 flex items-center justify-between gap-4">
+        <div className="text-sm">
+          {saveStatus === 'saved' && <span className="text-green-600 font-medium">✓ Guardado correctamente</span>}
+          {saveStatus === 'error' && <span className="text-red-500">{errorMsg}</span>}
+          {saveStatus === 'idle' && <span className="text-gray-400">Hacé click en Guardar para registrar tus respuestas</span>}
+        </div>
         <button
           onClick={handleSave}
-          disabled={saving || isPending}
-          className="bg-ypf-blue text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-ypf-dark transition-colors disabled:opacity-60"
+          disabled={saving}
+          className="bg-ypf-blue text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-ypf-dark transition-colors disabled:opacity-60 shrink-0"
         >
           {saving ? 'Guardando...' : 'Guardar'}
         </button>
