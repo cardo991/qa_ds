@@ -138,7 +138,7 @@ export default function QuestionnaireForm({ reportId, sections, initialResponses
                   <div key={item.id} className="p-5">
                     <div className="flex gap-3 mb-3">
                       <span className="shrink-0 text-xs font-bold text-ypf-blue bg-ypf-lightblue px-2 py-0.5 rounded">
-                        {item.id}
+                        {item.displayId}
                       </span>
                       <div className="flex-1">
                         <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-0.5">
