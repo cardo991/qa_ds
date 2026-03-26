@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+type FilterState = 'todos' | 'aprobado' | 'no_aprobado' | 'sin_completar'
+type SortState = 'fecha' | 'porcentaje_desc' | 'porcentaje_asc' | 'nombre'
+
 interface ReportStat {
   id: string
   name: string
@@ -19,12 +22,26 @@ export default function ReportsList({ reports }: { reports: ReportStat[] }) {
   const router = useRouter()
   const supabase = createClient()
   const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<FilterState>('todos')
+  const [sort, setSort] = useState<SortState>('fecha')
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [duplicating, setDuplicating] = useState<string | null>(null)
 
-  const filtered = reports.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = reports
+    .filter(r => r.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(r => {
+      if (filter === 'aprobado') return r.porcentaje !== null && r.aprobado
+      if (filter === 'no_aprobado') return r.porcentaje !== null && !r.aprobado
+      if (filter === 'sin_completar') return r.porcentaje === null
+      return true
+    })
+    .sort((a, b) => {
+      if (sort === 'porcentaje_desc') return (b.porcentaje ?? -1) - (a.porcentaje ?? -1)
+      if (sort === 'porcentaje_asc') return (a.porcentaje ?? 101) - (b.porcentaje ?? 101)
+      if (sort === 'nombre') return a.name.localeCompare(b.name)
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
 
   async function handleDelete(id: string) {
     setDeleting(id)
@@ -34,10 +51,43 @@ export default function ReportsList({ reports }: { reports: ReportStat[] }) {
     router.refresh()
   }
 
+  async function handleDuplicate(report: ReportStat) {
+    setDuplicating(report.id)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: newReport } = await supabase
+      .from('reports')
+      .insert({ name: `Copia de ${report.name}`, user_id: user.id })
+      .select('id').single()
+
+    if (newReport) {
+      const { data: responses } = await supabase
+        .from('report_responses')
+        .select('item_id, resultado, observaciones')
+        .eq('report_id', report.id)
+
+      if (responses && responses.length > 0) {
+        await supabase.from('report_responses').insert(
+          responses.map(r => ({ ...r, report_id: newReport.id }))
+        )
+      }
+    }
+    setDuplicating(null)
+    router.refresh()
+  }
+
+  const filterButtons: { key: FilterState; label: string }[] = [
+    { key: 'todos', label: 'Todos' },
+    { key: 'aprobado', label: '✅ Aprobados' },
+    { key: 'no_aprobado', label: '❌ No aprobados' },
+    { key: 'sin_completar', label: '⏳ Sin completar' },
+  ]
+
   return (
     <div>
       {/* Buscador */}
-      <div className="relative mb-6">
+      <div className="relative mb-4">
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
@@ -51,6 +101,35 @@ export default function ReportsList({ reports }: { reports: ReportStat[] }) {
         {search && (
           <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">✕</button>
         )}
+      </div>
+
+      {/* Filtros y orden */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap gap-2">
+          {filterButtons.map(f => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                filter === f.key
+                  ? 'bg-ypf-blue text-white border-ypf-blue'
+                  : 'border-gray-200 text-gray-600 hover:border-ypf-blue hover:text-ypf-blue'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <select
+          value={sort}
+          onChange={e => setSort(e.target.value as SortState)}
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-ypf-blue"
+        >
+          <option value="fecha">Ordenar: Más reciente</option>
+          <option value="porcentaje_desc">Ordenar: Mayor %</option>
+          <option value="porcentaje_asc">Ordenar: Menor %</option>
+          <option value="nombre">Ordenar: Nombre A-Z</option>
+        </select>
       </div>
 
       {filtered.length === 0 ? (
@@ -93,6 +172,25 @@ export default function ReportsList({ reports }: { reports: ReportStat[] }) {
                     </span>
                   </div>
                 </Link>
+
+                {/* Botón duplicar */}
+                <button
+                  onClick={() => handleDuplicate(report)}
+                  disabled={duplicating === report.id}
+                  className="shrink-0 p-2 rounded-lg text-gray-400 hover:text-ypf-blue hover:bg-ypf-lightblue transition-colors disabled:opacity-40"
+                  title="Duplicar reporte"
+                >
+                  {duplicating === report.id ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </button>
 
                 {/* Botón eliminar */}
                 <button

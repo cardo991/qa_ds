@@ -4,6 +4,8 @@ import { SECTIONS, calcularPorcentaje } from '@/lib/questionnaire'
 import type { Resultado } from '@/lib/questionnaire'
 import QuestionnaireForm from '@/components/QuestionnaireForm'
 import DownloadButtons from '@/components/DownloadButtons'
+import ReportHeader from '@/components/ReportHeader'
+import VersionHistory from '@/components/VersionHistory'
 
 export default async function ReportPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -12,17 +14,17 @@ export default async function ReportPage({ params }: { params: { id: string } })
 
   const { data: report } = await supabase
     .from('reports')
-    .select('id, name, user_id')
+    .select('id, name, user_id, comment, is_final, share_token')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .single()
 
   if (!report) notFound()
 
-  const { data: rawResponses } = await supabase
-    .from('report_responses')
-    .select('item_id, resultado, observaciones')
-    .eq('report_id', params.id)
+  const [{ data: rawResponses }, { data: versions }] = await Promise.all([
+    supabase.from('report_responses').select('item_id, resultado, observaciones').eq('report_id', params.id),
+    supabase.from('report_versions').select('id, porcentaje, created_at, label').eq('report_id', params.id).order('created_at', { ascending: false }).limit(10),
+  ])
 
   const responses: Record<string, Resultado> = {}
   const observaciones: Record<string, string> = {}
@@ -35,47 +37,24 @@ export default async function ReportPage({ params }: { params: { id: string } })
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-gray-500 mb-1">Reporte QA</p>
-            <h1 className="text-2xl font-bold text-gray-900 truncate">{report.name}</h1>
-          </div>
+      <ReportHeader
+        reportId={report.id}
+        reportName={report.name}
+        isFinal={report.is_final ?? false}
+        shareToken={report.share_token ?? ''}
+        porcentaje={porcentaje}
+        aprobados={aprobados}
+        total={total}
+        na={na}
+      />
 
-          <div className="flex items-start gap-3 flex-wrap">
-            {/* Botones descarga */}
-            <DownloadButtons
-              reportName={report.name}
-              sections={SECTIONS}
-              responses={responses}
-              observaciones={observaciones}
-            />
-
-            {/* Score badge */}
-            <div className={`rounded-xl px-5 py-3 text-center min-w-[110px] ${
-              porcentaje === null
-                ? 'bg-gray-100'
-                : porcentaje >= 80
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-red-50 border border-red-200'
-            }`}>
-              <div className={`text-3xl font-bold ${
-                porcentaje === null ? 'text-gray-400' : porcentaje >= 80 ? 'text-green-600' : 'text-red-500'
-              }`}>
-                {porcentaje !== null ? `${porcentaje}%` : '—'}
-              </div>
-              <div className={`text-xs font-semibold mt-0.5 ${
-                porcentaje === null ? 'text-gray-400' : porcentaje >= 80 ? 'text-green-700' : 'text-red-600'
-              }`}>
-                {porcentaje === null ? 'Sin completar' : porcentaje >= 80 ? 'APROBADO' : 'NO APROBADO'}
-              </div>
-              {porcentaje !== null && (
-                <div className="text-xs text-gray-400 mt-1">{aprobados}/{total} · {na} N/A</div>
-              )}
-            </div>
-          </div>
-        </div>
+      <div className="flex justify-end mb-4">
+        <DownloadButtons
+          reportName={report.name}
+          sections={SECTIONS}
+          responses={responses}
+          observaciones={observaciones}
+        />
       </div>
 
       <QuestionnaireForm
@@ -83,7 +62,10 @@ export default async function ReportPage({ params }: { params: { id: string } })
         sections={SECTIONS}
         initialResponses={responses}
         initialObservaciones={observaciones}
+        initialComment={report.comment ?? ''}
       />
+
+      <VersionHistory versions={versions ?? []} />
     </div>
   )
 }

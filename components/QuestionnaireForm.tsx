@@ -11,6 +11,7 @@ interface Props {
   sections: QASection[]
   initialResponses: Record<string, Resultado>
   initialObservaciones: Record<string, string>
+  initialComment?: string
 }
 
 const RESULTADO_LABELS: Record<Resultado, { label: string; color: string; selected: string }> = {
@@ -31,12 +32,13 @@ const RESULTADO_LABELS: Record<Resultado, { label: string; color: string; select
   },
 }
 
-export default function QuestionnaireForm({ reportId, sections, initialResponses, initialObservaciones }: Props) {
+export default function QuestionnaireForm({ reportId, sections, initialResponses, initialObservaciones, initialComment = '' }: Props) {
   const router = useRouter()
   const supabase = createClient()
 
   const [responses, setResponses] = useState<Record<string, Resultado>>(initialResponses)
   const [observaciones, setObservaciones] = useState<Record<string, string>>(initialObservaciones)
+  const [comment, setComment] = useState(initialComment)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -90,8 +92,16 @@ export default function QuestionnaireForm({ reportId, sections, initialResponses
 
     await supabase
       .from('reports')
-      .update({ updated_at: new Date().toISOString() })
+      .update({ updated_at: new Date().toISOString(), comment })
       .eq('id', reportId)
+
+    // Guardar snapshot de versión
+    const { porcentaje: pct } = calcularPorcentaje(responses)
+    await supabase.from('report_versions').insert({
+      report_id: reportId,
+      snapshot: responses,
+      porcentaje: pct,
+    })
 
     setSaving(false)
     setSaveStatus('saved')
@@ -184,6 +194,18 @@ export default function QuestionnaireForm({ reportId, sections, initialResponses
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Comentario general */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mt-6">
+        <h3 className="font-semibold text-gray-800 mb-2 text-sm">Comentario general del reporte</h3>
+        <textarea
+          value={comment}
+          onChange={e => { setComment(e.target.value); setSaveStatus('idle') }}
+          placeholder="Observaciones generales, conclusiones, próximos pasos..."
+          rows={3}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-ypf-blue"
+        />
       </div>
 
       {/* Save footer */}

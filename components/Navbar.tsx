@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useState } from 'react'
 
+const ADMIN_EMAIL = 'lcscardozo2@gmail.com'
+
 export default function Navbar({ userEmail }: { userEmail: string }) {
   const router = useRouter()
   const supabase = createClient()
@@ -43,6 +45,15 @@ export default function Navbar({ userEmail }: { userEmail: string }) {
 
           {menuOpen && (
             <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[160px] z-20">
+              {userEmail === ADMIN_EMAIL && (
+                <Link
+                  href="/admin"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2 text-sm text-ypf-blue font-medium hover:bg-ypf-lightblue"
+                >
+                  Panel admin
+                </Link>
+              )}
               <Link
                 href="/profile"
                 onClick={() => setMenuOpen(false)}
